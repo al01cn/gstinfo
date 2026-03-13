@@ -62,6 +62,12 @@ export type PathInput = string | PathSegment[];
 const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const textDecoder = new TextDecoder("utf-8");
 
+/**
+ * 将文件输入统一转换为 Uint8Array。
+ * @param input 支持的文件输入类型。
+ * @returns 对应的二进制数据。
+ * @throws 当输入为字符串路径时抛出错误，提示调用方先读取文件。
+ */
 function asUint8Array(input: FileInput): Uint8Array {
   if (typeof input === "string") {
     throw new Error("不支持将字符串直接转换为二进制，请先读取文件");
@@ -74,6 +80,11 @@ function asUint8Array(input: FileInput): Uint8Array {
   return new Uint8Array(input);
 }
 
+/**
+ * 读取输入并返回二进制内容。
+ * @param input 文件路径或二进制内容。
+ * @returns 读取后的 Uint8Array。
+ */
 async function readInputBytes(input: FileInput): Promise<Uint8Array> {
   if (typeof input === "string") {
     const buffer = await readFile(input);
@@ -83,6 +94,12 @@ async function readInputBytes(input: FileInput): Promise<Uint8Array> {
   return asUint8Array(input);
 }
 
+/**
+ * 判断二进制数据是否以前缀签名开头。
+ * @param buffer 待检测数据。
+ * @param signature 目标签名。
+ * @returns 是否匹配。
+ */
 function bufferStartsWith(buffer: Uint8Array, signature: Uint8Array): boolean {
   if (buffer.length < signature.length) {
     return false;
@@ -97,6 +114,12 @@ function bufferStartsWith(buffer: Uint8Array, signature: Uint8Array): boolean {
   return true;
 }
 
+/**
+ * 在指定起始位置后查找第一个空字节。
+ * @param buffer 待查找的二进制数据。
+ * @param start 起始偏移。
+ * @returns 空字节索引，未找到返回 -1。
+ */
 function findNullByteIndex(buffer: Uint8Array, start: number): number {
   for (let i = start; i < buffer.length; i += 1) {
     if (buffer[i] === 0) {
@@ -107,6 +130,11 @@ function findNullByteIndex(buffer: Uint8Array, start: number): number {
   return -1;
 }
 
+/**
+ * 尝试将字符串解析为 JSON 对象。
+ * @param value 待解析文本。
+ * @returns 解析后的对象；解析失败时返回 null。
+ */
 function parseJsonCandidate(value: string): JsonObject | null {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -124,6 +152,11 @@ function parseJsonCandidate(value: string): JsonObject | null {
   }
 }
 
+/**
+ * 尝试将 Base64 字符串解码并解析为 JSON 对象。
+ * @param value 可能为 Base64 的文本。
+ * @returns 解析后的对象；解析失败时返回 null。
+ */
 function parseBase64JsonCandidate(value: string): JsonObject | null {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -153,6 +186,11 @@ function parseBase64JsonCandidate(value: string): JsonObject | null {
   }
 }
 
+/**
+ * 解析 PNG tEXt 块负载。
+ * @param payload tEXt 块原始负载。
+ * @returns 文本内容，解析失败返回 null。
+ */
 function parseTextPayload(payload: Uint8Array): string | null {
   const separator = findNullByteIndex(payload, 0);
   if (separator < 0 || separator + 1 >= payload.length) {
@@ -162,6 +200,11 @@ function parseTextPayload(payload: Uint8Array): string | null {
   return textDecoder.decode(payload.subarray(separator + 1));
 }
 
+/**
+ * 解析 PNG zTXt 块负载。
+ * @param payload zTXt 块原始负载。
+ * @returns 解压后的文本，解析失败返回 null。
+ */
 function parseZtxtPayload(payload: Uint8Array): string | null {
   const separator = findNullByteIndex(payload, 0);
   if (separator < 0 || separator + 2 > payload.length) {
@@ -181,6 +224,11 @@ function parseZtxtPayload(payload: Uint8Array): string | null {
   }
 }
 
+/**
+ * 解析 PNG iTXt 块负载。
+ * @param payload iTXt 块原始负载。
+ * @returns 文本内容，解析失败返回 null。
+ */
 function parseItxtPayload(payload: Uint8Array): string | null {
   const keywordEnd = findNullByteIndex(payload, 0);
   if (keywordEnd < 0 || keywordEnd + 5 > payload.length) {
@@ -218,6 +266,12 @@ function parseItxtPayload(payload: Uint8Array): string | null {
   return textDecoder.decode(textData);
 }
 
+/**
+ * 从 PNG 中提取文本块内容。
+ * @param bytes PNG 二进制数据。
+ * @returns 提取出的所有文本内容。
+ * @throws 当输入不是有效 PNG 时抛出错误。
+ */
 function extractTextChunksFromPng(bytes: Uint8Array): string[] {
   if (!bufferStartsWith(bytes, PNG_SIGNATURE)) {
     throw new Error("文件不是有效的 PNG");
@@ -270,6 +324,12 @@ function extractTextChunksFromPng(bytes: Uint8Array): string[] {
   return texts;
 }
 
+/**
+ * 从 PNG 中提取并解析角色卡 JSON。
+ * @param bytes PNG 二进制数据。
+ * @returns 解析后的 JSON 对象。
+ * @throws 当无法解析出 JSON 时抛出错误。
+ */
 function parseJsonFromPng(bytes: Uint8Array): JsonObject {
   const textChunks = extractTextChunksFromPng(bytes);
   const keywordPriority = ["chara", "ccv3", "character", "card"];
@@ -297,6 +357,12 @@ function parseJsonFromPng(bytes: Uint8Array): JsonObject {
   throw new Error("未在 PNG 中找到可解析的角色卡 JSON");
 }
 
+/**
+ * 从文本内容解析 JSON。
+ * @param text 文件文本内容。
+ * @returns 解析后的 JSON 对象。
+ * @throws 当文本不是有效 JSON 时抛出错误。
+ */
 function parseJsonFromText(text: string): JsonObject {
   const direct = parseJsonCandidate(text);
   if (direct) {
@@ -311,6 +377,11 @@ function parseJsonFromText(text: string): JsonObject {
   throw new Error("文件内容不是有效 JSON");
 }
 
+/**
+ * 自动识别输入类型并解析 JSON。
+ * @param input 文件路径或二进制数据。
+ * @returns 解析后的 JSON 对象。
+ */
 async function parseAnyJson(input: FileInput): Promise<JsonObject> {
   const bytes = await readInputBytes(input);
   if (bufferStartsWith(bytes, PNG_SIGNATURE)) {
@@ -320,6 +391,11 @@ async function parseAnyJson(input: FileInput): Promise<JsonObject> {
   return parseJsonFromText(textDecoder.decode(bytes));
 }
 
+/**
+ * 将未知值安全转换为对象。
+ * @param value 待转换值。
+ * @returns 对象或 null。
+ */
 function asObject(value: unknown): JsonObject | null {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return value as JsonObject;
@@ -327,10 +403,20 @@ function asObject(value: unknown): JsonObject | null {
   return null;
 }
 
+/**
+ * 将未知值安全转换为字符串。
+ * @param value 待转换值。
+ * @returns 字符串值，非字符串时返回空串。
+ */
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+/**
+ * 将未知值安全转换为字符串数组。
+ * @param value 待转换值。
+ * @returns 字符串数组。
+ */
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -338,18 +424,38 @@ function asStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+/**
+ * 将未知值安全转换为有限数字。
+ * @param value 待转换值。
+ * @returns 数字或 undefined。
+ */
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+/**
+ * 将未知值安全转换为布尔值。
+ * @param value 待转换值。
+ * @returns 布尔值或 undefined。
+ */
 function asBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
+/**
+ * 判断值是否为非数组 JSON 对象。
+ * @param value 待判断值。
+ * @returns 是否为 JSON 对象。
+ */
 function isJsonObjectValue(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * 将路径输入规范化为路径片段数组。
+ * @param path 路径字符串或路径片段数组。
+ * @returns 路径片段数组。
+ */
 function parsePath(path: PathInput): PathSegment[] {
   if (Array.isArray(path)) {
     return path;
@@ -363,6 +469,14 @@ function parsePath(path: PathInput): PathSegment[] {
     .map((segment) => (/^\d+$/.test(segment) ? Number(segment) : segment));
 }
 
+/**
+ * 按路径安全读取任意对象中的值。
+ * @typeParam T 返回值类型。
+ * @param source 数据源对象。
+ * @param path 路径表达式，支持 a.b[0].c 形式。
+ * @param defaultValue 未命中或值为 undefined 时的默认值。
+ * @returns 读取到的值或默认值。
+ */
 export function getValueByPath<T = unknown>(
   source: unknown,
   path: PathInput,
@@ -398,6 +512,12 @@ export function getValueByPath<T = unknown>(
   return current as T;
 }
 
+/**
+ * 从对象中按优先级选择第一个非空字符串字段。
+ * @param source 源对象。
+ * @param keys 候选字段名列表。
+ * @returns 命中的字符串，未命中时返回空串。
+ */
 function pickString(source: JsonObject | null, keys: string[]): string {
   if (!source) {
     return "";
@@ -413,6 +533,11 @@ function pickString(source: JsonObject | null, keys: string[]): string {
   return "";
 }
 
+/**
+ * 从已解析数据中提取世界书原始对象。
+ * @param parsed 已解析 JSON 对象。
+ * @returns 世界书对象；未命中时返回原对象。
+ */
 function extractWorldRawFromParsed(parsed: JsonObject): JsonObject {
   const directKeys = ["character_book", "worldbook", "world_info", "lorebook"];
   for (const key of directKeys) {
@@ -446,6 +571,11 @@ function extractWorldRawFromParsed(parsed: JsonObject): JsonObject {
   return parsed;
 }
 
+/**
+ * 标准化单条世界书条目。
+ * @param entry 世界书条目原始对象。
+ * @returns 标准化条目数据。
+ */
 function normalizeWorldEntry(entry: JsonObject): WorldEntryInfo {
   return {
     raw: entry,
@@ -465,6 +595,11 @@ function normalizeWorldEntry(entry: JsonObject): WorldEntryInfo {
   };
 }
 
+/**
+ * 基于世界书原始数据构建结构化信息。
+ * @param raw 世界书原始对象。
+ * @returns 结构化世界书信息。
+ */
 function createWorldInfo(raw: JsonObject): WorldInfo {
   const entriesRaw = Array.isArray(raw.entries) ? raw.entries : [];
   const entries = entriesRaw
@@ -480,6 +615,11 @@ function createWorldInfo(raw: JsonObject): WorldInfo {
   };
 }
 
+/**
+ * 基于角色原始数据构建结构化角色信息。
+ * @param raw 角色原始对象。
+ * @returns 结构化角色信息。
+ */
 function createCharacterInfo(raw: JsonObject): CharacterInfo {
   const data = asObject(raw.data);
   const worldRaw = extractWorldRawFromParsed(raw);
@@ -507,6 +647,12 @@ function createCharacterInfo(raw: JsonObject): CharacterInfo {
   };
 }
 
+/**
+ * 根据预设来源解析对应模型名称。
+ * @param raw 预设原始对象。
+ * @param source 聊天补全来源。
+ * @returns 解析出的模型名称。
+ */
 function resolvePresetModel(raw: JsonObject, source: string): string {
   const bySource: Record<string, string> = {
     openai: "openai_model",
@@ -539,6 +685,11 @@ function resolvePresetModel(raw: JsonObject, source: string): string {
   return "";
 }
 
+/**
+ * 基于预设原始数据构建结构化预设信息。
+ * @param raw 预设原始对象。
+ * @returns 结构化预设信息。
+ */
 function createPresetsInfo(raw: JsonObject): PresetsInfo {
   const source = pickString(raw, ["chat_completion_source"]);
   return {
@@ -556,22 +707,42 @@ function createPresetsInfo(raw: JsonObject): PresetsInfo {
   };
 }
 
+/**
+ * 解析角色卡文件并返回结构化角色信息。
+ * @param input 文件路径或二进制内容。
+ * @returns 角色信息。
+ */
 export async function getCharacterInfo(input: FileInput): Promise<CharacterInfo> {
   const raw = await parseAnyJson(input);
   return createCharacterInfo(raw);
 }
 
+/**
+ * 解析世界书文件并返回结构化世界书信息。
+ * @param input 文件路径或二进制内容。
+ * @returns 世界书信息。
+ */
 export async function getWorldInfo(input: FileInput): Promise<WorldInfo> {
   const parsed = await parseAnyJson(input);
   const worldRaw = extractWorldRawFromParsed(parsed);
   return createWorldInfo(worldRaw);
 }
 
+/**
+ * 解析预设文件并返回结构化预设信息。
+ * @param input 文件路径或二进制内容。
+ * @returns 预设信息。
+ */
 export async function getPresetsInfo(input: FileInput): Promise<PresetsInfo> {
   const raw = await parseAnyJson(input);
   return createPresetsInfo(raw);
 }
 
+/**
+ * 判断值是否符合 CharacterInfo 结构。
+ * @param value 待判断值。
+ * @returns 是否为 CharacterInfo。
+ */
 export function isCharacterInfo(value: unknown): value is CharacterInfo {
   if (!isJsonObjectValue(value)) {
     return false;
@@ -585,6 +756,11 @@ export function isCharacterInfo(value: unknown): value is CharacterInfo {
   );
 }
 
+/**
+ * 判断值是否符合 WorldInfo 结构。
+ * @param value 待判断值。
+ * @returns 是否为 WorldInfo。
+ */
 export function isWorldInfo(value: unknown): value is WorldInfo {
   if (!isJsonObjectValue(value)) {
     return false;
@@ -593,6 +769,11 @@ export function isWorldInfo(value: unknown): value is WorldInfo {
   return isJsonObjectValue(value.raw) && typeof value.name === "string" && Array.isArray(value.entries);
 }
 
+/**
+ * 判断值是否符合 PresetsInfo 结构。
+ * @param value 待判断值。
+ * @returns 是否为 PresetsInfo。
+ */
 export function isPresetsInfo(value: unknown): value is PresetsInfo {
   if (!isJsonObjectValue(value)) {
     return false;
