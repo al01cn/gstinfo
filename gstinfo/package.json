@@ -9,5 +9,6 @@
     "typescript": "^5.2.0"
   },
   "name": "gstinfo",
-  "version": "0.0.1"
+  "version": "0.0.1",
+  "license": "MIT"
 }
