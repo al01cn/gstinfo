@@ -20,7 +20,12 @@
 
 ```text
 gstinfo/
-  src/index.ts
+  dist/
+    index.js
+    index.global.js
+    index.d.ts
+  src/
+    index.ts
   package.json
   tsconfig.json
 ```
@@ -51,7 +56,66 @@ bun run build
 bunx tsc --noEmit
 ```
 
-### 快速开始
+### 使用方式
+
+#### 输入规则（统一 API）
+
+- `getCharacterInfo(input)`
+- `getWorldInfo(input)`
+- `getPresetsInfo(input)`
+
+三个函数在 Node 与浏览器下保持同一签名，均为 `input` 单参数。
+
+- Node.js：支持 `文件路径(string)`、`Buffer(Uint8Array)`、`Uint8Array`、`ArrayBuffer`
+- 浏览器：支持 `File/Blob`、`Uint8Array`、`ArrayBuffer`
+
+#### Node.js（工程化）
+
+```ts
+import { getCharacterInfo, getWorldInfo, getPresetsInfo } from "gstinfo";
+
+const character = await getCharacterInfo("path/to/character.png");
+const world = await getWorldInfo("path/to/world.json");
+const preset = await getPresetsInfo("path/to/preset.json");
+```
+
+```ts
+import { readFile } from "node:fs/promises";
+import { getCharacterInfo } from "gstinfo";
+
+const buf = await readFile("path/to/character.png");
+const character = await getCharacterInfo(buf);
+```
+
+#### 浏览器（工程化）
+
+```ts
+import { getCharacterInfo } from "gstinfo";
+
+const input = document.querySelector<HTMLInputElement>("#fileInput");
+const file = input?.files?.[0];
+if (file) {
+  const character = await getCharacterInfo(file);
+  console.log(character);
+}
+```
+
+#### 浏览器（CDN 引入）
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/gstinfo@0.0.2/dist/index.global.js"></script>
+<script>
+  const input = document.getElementById("fileInput");
+  input.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const character = await GSTInfo.getCharacterInfo(file);
+    console.log(character);
+  });
+</script>
+```
+
+### 快速开始（通用）
 
 ```ts
 import {
@@ -119,7 +183,12 @@ const isValid =
 
 ```text
 gstinfo/
-  src/index.ts
+  dist/
+    index.js
+    index.global.js
+    index.d.ts
+  src/
+    index.ts
   package.json
   tsconfig.json
 ```
@@ -150,7 +219,66 @@ bun run build
 bunx tsc --noEmit
 ```
 
-### Quick Start
+### Usage
+
+#### Unified Input API
+
+- `getCharacterInfo(input)`
+- `getWorldInfo(input)`
+- `getPresetsInfo(input)`
+
+The three functions share the same one-argument signature across Node and browsers.
+
+- Node.js: `path(string)`, `Buffer(Uint8Array)`, `Uint8Array`, `ArrayBuffer`
+- Browser: `File/Blob`, `Uint8Array`, `ArrayBuffer`
+
+#### Node.js (Bundler/Runtime)
+
+```ts
+import { getCharacterInfo, getWorldInfo, getPresetsInfo } from "gstinfo";
+
+const character = await getCharacterInfo("path/to/character.png");
+const world = await getWorldInfo("path/to/world.json");
+const preset = await getPresetsInfo("path/to/preset.json");
+```
+
+```ts
+import { readFile } from "node:fs/promises";
+import { getCharacterInfo } from "gstinfo";
+
+const buf = await readFile("path/to/character.png");
+const character = await getCharacterInfo(buf);
+```
+
+#### Browser (Bundler)
+
+```ts
+import { getCharacterInfo } from "gstinfo";
+
+const input = document.querySelector<HTMLInputElement>("#fileInput");
+const file = input?.files?.[0];
+if (file) {
+  const character = await getCharacterInfo(file);
+  console.log(character);
+}
+```
+
+#### Browser (CDN)
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/gstinfo@0.0.2/dist/index.global.js"></script>
+<script>
+  const input = document.getElementById("fileInput");
+  input.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const character = await GSTInfo.getCharacterInfo(file);
+    console.log(character);
+  });
+</script>
+```
+
+### Quick Start (Generic)
 
 ```ts
 import {

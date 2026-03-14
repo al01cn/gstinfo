@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>gstinfo 浏览器测试（CDN）</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    .container {
+      max-width: 900px;
+      margin: 24px auto;
+      padding: 0 16px 24px;
+    }
+    .card {
+      background: #111827;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    input[type="file"] {
+      color: #cbd5e1;
+    }
+    button {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+    .muted {
+      color: #94a3b8;
+      font-size: 13px;
+    }
+    #status {
+      min-height: 22px;
+      font-weight: 600;
+    }
+    #preview {
+      max-width: 280px;
+      max-height: 280px;
+      display: none;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      margin-top: 10px;
+      object-fit: contain;
+      background: #020617;
+    }
+    pre {
+      margin: 0;
+      background: #020617;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 12px;
+      overflow: auto;
+      max-height: 60vh;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h2>gstinfo 浏览器环境测试（CDN）</h2>
+      <p class="muted">当前页面通过全局构建文件加载 GSTInfo，模拟 CDN script 引入场景。</p>
+      <div class="row">
+        <input type="file" id="fileInput" accept=".png,.json,image/png,application/json">
+        <button id="btnCharacter" type="button">测试 CharacterInfo</button>
+        <button id="btnWorld" type="button">测试 WorldInfo</button>
+        <button id="btnPreset" type="button">测试 PresetsInfo</button>
+      </div>
+      <p id="fileMeta" class="muted">未选择文件</p>
+      <p id="runtime" class="muted"></p>
+      <p id="status"></p>
+      <img id="preview" alt="文件预览">
+    </div>
+
+    <div class="card">
+      <h3>解析结果</h3>
+      <pre id="result">{}</pre>
+    </div>
+  </div>
+
+  <script src="../dist/index.global.js"></script>
+  <script>
+    const api = window.GSTInfo;
+    const fileInput = document.querySelector("#fileInput");
+    const fileMeta = document.querySelector("#fileMeta");
+    const runtime = document.querySelector("#runtime");
+    const status = document.querySelector("#status");
+    const preview = document.querySelector("#preview");
+    const result = document.querySelector("#result");
+    const btnCharacter = document.querySelector("#btnCharacter");
+    const btnWorld = document.querySelector("#btnWorld");
+    const btnPreset = document.querySelector("#btnPreset");
+
+    let selectedFile = null;
+    let previewUrl = "";
+
+    if (!api) {
+      runtime.textContent = "运行模式：CDN（全局变量 GSTInfo 不存在）";
+      status.textContent = "库加载失败，请检查 ../gstinfo/dist/index.global.js";
+      status.style.color = "#f87171";
+      btnCharacter.disabled = true;
+      btnWorld.disabled = true;
+      btnPreset.disabled = true;
+    } else {
+      runtime.textContent = "运行模式：CDN（window.GSTInfo）";
+      status.textContent = "库加载成功，可开始测试";
+      status.style.color = "#22c55e";
+    }
+
+    const clearPreview = () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+        previewUrl = "";
+      }
+      preview.removeAttribute("src");
+      preview.style.display = "none";
+    };
+
+    const updateStatus = (message, isError = false) => {
+      status.textContent = message;
+      status.style.color = isError ? "#f87171" : "#22c55e";
+    };
+
+    const formatResult = (payload) => {
+      result.textContent = JSON.stringify(payload, null, 2);
+    };
+
+    const ensureFile = () => {
+      if (!selectedFile) {
+        throw new Error("请先选择一个测试文件");
+      }
+      return selectedFile;
+    };
+
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files?.[0] ?? null;
+      selectedFile = file;
+      clearPreview();
+
+      if (!file) {
+        fileMeta.textContent = "未选择文件";
+        updateStatus("等待选择文件", false);
+        formatResult({});
+        return;
+      }
+
+      const sizeKB = (file.size / 1024).toFixed(2);
+      fileMeta.textContent = `文件：${file.name} | 类型：${file.type || "unknown"} | 大小：${sizeKB} KB`;
+      updateStatus("文件已就绪，可开始解析", false);
+
+      if (file.type.startsWith("image/") || file.name.toLowerCase().endsWith(".png")) {
+        previewUrl = URL.createObjectURL(file);
+        preview.src = previewUrl;
+        preview.style.display = "block";
+      }
+    });
+
+    const runParser = async (label, parser, validator, extraBuilder) => {
+      try {
+        const file = ensureFile();
+        updateStatus(`正在解析 ${label}...`, false);
+        const parsed = await parser(file);
+        const valid = validator(parsed);
+        const extra = extraBuilder(parsed);
+        formatResult({
+          ok: true,
+          parser: label,
+          valid,
+          fileName: file.name,
+          ...extra,
+          parsed
+        });
+        updateStatus(`${label} 解析成功`, false);
+      } catch (error) {
+        formatResult({
+          ok: false,
+          parser: label,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        updateStatus(`${label} 解析失败`, true);
+      }
+    };
+
+    btnCharacter.addEventListener("click", async () => {
+      await runParser(
+        "CharacterInfo",
+        api.getCharacterInfo,
+        api.isCharacterInfo,
+        (parsed) => ({
+          summary: {
+            name: parsed.name,
+            worldEntryCount: parsed.worldInfo?.entryCount ?? 0,
+            firstEntryContent: api.getValueByPath(parsed, "worldInfo.entries[0].content", "")
+          }
+        })
+      );
+    });
+
+    btnWorld.addEventListener("click", async () => {
+      await runParser(
+        "WorldInfo",
+        api.getWorldInfo,
+        api.isWorldInfo,
+        (parsed) => ({
+          summary: {
+            name: parsed.name,
+            entryCount: parsed.entryCount,
+            firstEntryContent: api.getValueByPath(parsed, "entries[0].content", "")
+          }
+        })
+      );
+    });
+
+    btnPreset.addEventListener("click", async () => {
+      await runParser(
+        "PresetsInfo",
+        api.getPresetsInfo,
+        api.isPresetsInfo,
+        (parsed) => ({
+          summary: {
+            source: parsed.source,
+            model: parsed.model,
+            temperature: parsed.temperature
+          }
+        })
+      );
+    });
+  </script>
+</body>
+</html>

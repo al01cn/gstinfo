@@ -1,7 +1,11 @@
-import { readFile } from "node:fs/promises";
-import { inflateSync } from "node:zlib";
+export type ArrayBufferReadable = {
+  arrayBuffer: () => Promise<ArrayBuffer>;
+};
 
-export type FileInput = string | Uint8Array | ArrayBuffer;
+export type BinaryInput = Uint8Array | ArrayBuffer | ArrayBufferReadable;
+export type BrowserFileInput = BinaryInput;
+export type NodeFileInput = string | BinaryInput;
+export type FileInput = NodeFileInput;
 export type JsonObject = Record<string, unknown>;
 
 export interface WorldEntryInfo {
@@ -63,21 +67,97 @@ const PNG_SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const textDecoder = new TextDecoder("utf-8");
 
 /**
+ * 判断当前运行时是否为 Node.js。
+ * @returns 是否为 Node.js 环境。
+ */
+function isNodeRuntime(): boolean {
+  return typeof process !== "undefined" && Boolean(process.versions?.node);
+}
+
+/**
+ * 在 Node.js 环境下通过路径读取文件内容。
+ * @param path 文件路径。
+ * @returns 文件二进制数据。
+ * @throws 当运行时不是 Node.js 时抛出错误。
+ */
+async function readFileFromPath(path: string): Promise<Uint8Array> {
+  if (!isNodeRuntime()) {
+    throw new Error("浏览器环境不支持通过路径读取文件，请传入 File、Blob、Uint8Array（Node Buffer）或 ArrayBuffer");
+  }
+
+  const { readFile } = await import("node:fs/promises");
+  const buffer = await readFile(path);
+  return new Uint8Array(buffer);
+}
+
+/**
+ * 对 deflate 数据进行解压，优先使用浏览器 DecompressionStream。
+ * @param input 待解压的二进制数据。
+ * @returns 解压后的二进制数据。
+ * @throws 当当前环境不支持解压能力时抛出错误。
+ */
+async function inflateDeflate(input: Uint8Array): Promise<Uint8Array> {
+  if (typeof DecompressionStream !== "undefined") {
+    const stableInput = new Uint8Array(input);
+    const stream = new Blob([stableInput]).stream().pipeThrough(new DecompressionStream("deflate"));
+    const output = await new Response(stream).arrayBuffer();
+    return new Uint8Array(output);
+  }
+
+  if (isNodeRuntime()) {
+    const { inflateSync } = await import("node:zlib");
+    return inflateSync(input);
+  }
+
+  throw new Error("当前环境不支持 zlib 解压");
+}
+
+/**
+ * 将 Base64 字符串解码为 UTF-8 文本。
+ * @param value Base64 编码字符串。
+ * @returns 解码后的文本内容。
+ * @throws 当当前环境不支持 Base64 解码时抛出错误。
+ */
+function decodeBase64ToText(value: string): string {
+  if (typeof atob === "function") {
+    const binary = atob(value);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return textDecoder.decode(bytes);
+  }
+
+  const bufferLike = (globalThis as { Buffer?: { from: (input: string, encoding: string) => Uint8Array } }).Buffer;
+  if (bufferLike) {
+    return textDecoder.decode(bufferLike.from(value, "base64"));
+  }
+
+  throw new Error("当前环境不支持 Base64 解码");
+}
+
+/**
  * 将文件输入统一转换为 Uint8Array。
  * @param input 支持的文件输入类型。
  * @returns 对应的二进制数据。
  * @throws 当输入为字符串路径时抛出错误，提示调用方先读取文件。
  */
-function asUint8Array(input: FileInput): Uint8Array {
-  if (typeof input === "string") {
-    throw new Error("不支持将字符串直接转换为二进制，请先读取文件");
-  }
-
+function asUint8Array(input: Uint8Array | ArrayBuffer): Uint8Array {
   if (input instanceof Uint8Array) {
     return input;
   }
 
   return new Uint8Array(input);
+}
+
+/**
+ * 判断值是否实现了 arrayBuffer 方法。
+ * @param value 待判断值。
+ * @returns 是否为可读取 ArrayBuffer 的对象。
+ */
+function isArrayBufferReadable(value: unknown): value is ArrayBufferReadable {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  return typeof (value as { arrayBuffer?: unknown }).arrayBuffer === "function";
 }
 
 /**
@@ -87,8 +167,11 @@ function asUint8Array(input: FileInput): Uint8Array {
  */
 async function readInputBytes(input: FileInput): Promise<Uint8Array> {
   if (typeof input === "string") {
-    const buffer = await readFile(input);
-    return new Uint8Array(buffer);
+    return readFileFromPath(input);
+  }
+
+  if (isArrayBufferReadable(input)) {
+    return new Uint8Array(await input.arrayBuffer());
   }
 
   return asUint8Array(input);
@@ -179,7 +262,7 @@ function parseBase64JsonCandidate(value: string): JsonObject | null {
   }
 
   try {
-    const decoded = Buffer.from(normalized, "base64").toString("utf-8");
+    const decoded = decodeBase64ToText(normalized);
     return parseJsonCandidate(decoded);
   } catch {
     return null;
@@ -205,7 +288,7 @@ function parseTextPayload(payload: Uint8Array): string | null {
  * @param payload zTXt 块原始负载。
  * @returns 解压后的文本，解析失败返回 null。
  */
-function parseZtxtPayload(payload: Uint8Array): string | null {
+async function parseZtxtPayload(payload: Uint8Array): Promise<string | null> {
   const separator = findNullByteIndex(payload, 0);
   if (separator < 0 || separator + 2 > payload.length) {
     return null;
@@ -217,7 +300,7 @@ function parseZtxtPayload(payload: Uint8Array): string | null {
   }
 
   try {
-    const decompressed = inflateSync(payload.subarray(separator + 2));
+    const decompressed = await inflateDeflate(payload.subarray(separator + 2));
     return textDecoder.decode(decompressed);
   } catch {
     return null;
@@ -229,7 +312,7 @@ function parseZtxtPayload(payload: Uint8Array): string | null {
  * @param payload iTXt 块原始负载。
  * @returns 文本内容，解析失败返回 null。
  */
-function parseItxtPayload(payload: Uint8Array): string | null {
+async function parseItxtPayload(payload: Uint8Array): Promise<string | null> {
   const keywordEnd = findNullByteIndex(payload, 0);
   if (keywordEnd < 0 || keywordEnd + 5 > payload.length) {
     return null;
@@ -257,7 +340,8 @@ function parseItxtPayload(payload: Uint8Array): string | null {
       return null;
     }
     try {
-      return textDecoder.decode(inflateSync(textData));
+      const decompressed = await inflateDeflate(textData);
+      return textDecoder.decode(decompressed);
     } catch {
       return null;
     }
@@ -272,7 +356,7 @@ function parseItxtPayload(payload: Uint8Array): string | null {
  * @returns 提取出的所有文本内容。
  * @throws 当输入不是有效 PNG 时抛出错误。
  */
-function extractTextChunksFromPng(bytes: Uint8Array): string[] {
+async function extractTextChunksFromPng(bytes: Uint8Array): Promise<string[]> {
   if (!bufferStartsWith(bytes, PNG_SIGNATURE)) {
     throw new Error("文件不是有效的 PNG");
   }
@@ -306,9 +390,9 @@ function extractTextChunksFromPng(bytes: Uint8Array): string[] {
     if (type === "tEXt") {
       parsed = parseTextPayload(payload);
     } else if (type === "zTXt") {
-      parsed = parseZtxtPayload(payload);
+      parsed = await parseZtxtPayload(payload);
     } else if (type === "iTXt") {
-      parsed = parseItxtPayload(payload);
+      parsed = await parseItxtPayload(payload);
     }
 
     if (parsed) {
@@ -330,8 +414,8 @@ function extractTextChunksFromPng(bytes: Uint8Array): string[] {
  * @returns 解析后的 JSON 对象。
  * @throws 当无法解析出 JSON 时抛出错误。
  */
-function parseJsonFromPng(bytes: Uint8Array): JsonObject {
-  const textChunks = extractTextChunksFromPng(bytes);
+async function parseJsonFromPng(bytes: Uint8Array): Promise<JsonObject> {
+  const textChunks = await extractTextChunksFromPng(bytes);
   const keywordPriority = ["chara", "ccv3", "character", "card"];
 
   const prioritized = [...textChunks].sort((a, b) => {
@@ -385,7 +469,7 @@ function parseJsonFromText(text: string): JsonObject {
 async function parseAnyJson(input: FileInput): Promise<JsonObject> {
   const bytes = await readInputBytes(input);
   if (bufferStartsWith(bytes, PNG_SIGNATURE)) {
-    return parseJsonFromPng(bytes);
+    return await parseJsonFromPng(bytes);
   }
 
   return parseJsonFromText(textDecoder.decode(bytes));

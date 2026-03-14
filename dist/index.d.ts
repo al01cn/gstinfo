@@ -1,4 +1,10 @@
-export type FileInput = string | Uint8Array | ArrayBuffer;
+export type ArrayBufferReadable = {
+    arrayBuffer: () => Promise<ArrayBuffer>;
+};
+export type BinaryInput = Uint8Array | ArrayBuffer | ArrayBufferReadable;
+export type BrowserFileInput = BinaryInput;
+export type NodeFileInput = string | BinaryInput;
+export type FileInput = NodeFileInput;
 export type JsonObject = Record<string, unknown>;
 export interface WorldEntryInfo {
     raw: JsonObject;
